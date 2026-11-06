@@ -1,0 +1,80 @@
+# Fremde, per Digest gepinnte Images aus dem privaten Quell-Repo unverändert nach
+# ghcr.io/eisentor/mirror/<registry>/<pfad> kopieren (öffentlich, ohne Abruf-Limit).
+# Nur dieser Workflow schreibt nach ghcr; eigene Images gehen nie hierher
+# (liste.py: Allowlist fremder Registries, nur nach Digest).
+name: spiegeln
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: spiegeln
+  cancel-in-progress: false
+
+jobs:
+  spiegeln:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Spiegel-Repo
+        run: git clone --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" spiegel
+
+      - name: Selbsttest
+        run: cd spiegel && python3 -m unittest -v test_liste.py
+
+      - name: Quell-Repo (nur lesen; das einzige private Repo des Tokens)
+        env:
+          LESEN: ${{ secrets.QUELLE_LESEN }}
+        run: |
+          [ -n "$LESEN" ] || { echo "::error::Secret QUELLE_LESEN fehlt"; exit 1; }
+          repos=$(curl -fsS -H "Authorization: Bearer $LESEN" \
+            "https://api.github.com/user/repos?visibility=private&per_page=100" | jq -r '.[].full_name')
+          [ "$(printf '%s\n' "$repos" | grep -c .)" = 1 ] || { echo "::error::Token muss genau ein privates Repo sehen"; exit 1; }
+          echo "::add-mask::$repos"
+          auth=$(printf 'x-access-token:%s' "$LESEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+            clone -q --depth 1 "https://github.com/$repos.git" quelle
+
+      - name: Liste
+        run: |
+          python3 spiegel/liste.py quelle > liste.tsv
+          cut -f1 liste.tsv
+          [ -s liste.tsv ] || { echo "::error::leere Liste"; exit 1; }
+
+      - name: Kopieren (nach Digest, fehlende zuerst prüfen)
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # grosse Laufzeit-Images (z. B. Modell-Server) braucht die CI nicht
+          MAX_GB: "4"
+        run: |
+          printf '%s' "$GHCR_TOKEN" | skopeo login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          fehler=0
+          while IFS=$'\t' read -r quelle ziel tag digest; do
+            if skopeo inspect --raw "docker://$ziel@$digest" >/dev/null 2>&1; then
+              echo "vorhanden: $ziel:$tag"
+              continue
+            fi
+            # skopeo lehnt Referenzen mit Tag und Digest ab: Quelle nur nach Digest
+            quelle_digest="${quelle%@*}"; quelle_digest="${quelle_digest%:*}@$digest"
+            gb=$(skopeo inspect --override-os linux --override-arch amd64 "docker://$quelle_digest" \
+              | jq '[.LayersData[].Size] | add / 1e9 | floor')
+            if [ "$gb" -ge "$MAX_GB" ]; then echo "übersprungen (${gb} GB > ${MAX_GB} GB): $quelle"; continue; fi
+            echo "::group::kopieren $quelle"
+            if skopeo copy --all --preserve-digests --retry-times 3 "docker://$quelle_digest" "docker://$ziel:$tag" 2>fehler.txt; then
+              ist=$(skopeo inspect --raw "docker://$ziel:$tag" | sha256sum | cut -d' ' -f1)
+              if [ "sha256:$ist" = "$digest" ]; then echo "ok: $ziel:$tag"; else echo "::error::Digest weicht ab: $ziel:$tag ($ist)"; fehler=1; fi
+            else
+              cat fehler.txt; echo "::error::Kopie fehlgeschlagen: $quelle: $(tail -c 400 fehler.txt | tr '\n' ' ')"; fehler=1
+            fi
+            echo "::endgroup::"
+          done < liste.tsv
+          skopeo logout ghcr.io
+          exit $fehler
