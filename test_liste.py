@@ -53,7 +53,9 @@ class Test(unittest.TestCase):
                 f"  image: ${{P:-git.example.work/a/p:1}}\n  image: docker.io/gotenberg/gotenberg:8.39.0@{D}\n"
             )
             (root / "c").mkdir()
-            (root / "c/lib.sh").write_text(f"N=${{N:-docker.io/library/node:22-bookworm@{D}}}\n")
+            (root / "c/lib.sh").write_text(
+                f"N=${{N:-docker.io/library/node:22-bookworm@{D}}}\nP=${{P:-mcr.microsoft.com/playwright:v1.64.1-noble@{D}}}\n"
+            )
             quellen = [e[0] for e in liste.liste(root)]
             self.assertEqual(
                 quellen,
@@ -62,6 +64,7 @@ class Test(unittest.TestCase):
                     f"docker.io/gotenberg/gotenberg:8.39.0@{D}",
                     f"docker.io/library/alpine:3.24.3@{D}",
                     f"docker.io/library/node:22-bookworm@{D}",
+                    f"mcr.microsoft.com/playwright:v1.64.1-noble@{D}",
                 ],
             )
 

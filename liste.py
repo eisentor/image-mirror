@@ -13,7 +13,7 @@ Regeln (bewusst eng, damit nie ein eigenes Image hier landet):
   interne Cache), kein frei wählbarer Name.
 
 Quellen ohne feste Pfade: alle Dockerfile* (FROM, ARG-Standardwerte aufgelöst),
-compose*.yaml im selben Ordner wie ein Dockerfile, *.sh (wörtliche Docker-Hub-Pins).
+compose*.yaml im selben Ordner wie ein Dockerfile, *.sh (wörtliche Pins von Docker Hub und mcr.microsoft.com).
 
 Prüfung: python3 -m unittest test_liste.py
 """
@@ -25,14 +25,14 @@ import sys
 from pathlib import Path
 
 ZIEL = "ghcr.io/eisentor/mirror"
-ERLAUBT = ("docker.io", "lscr.io", "codeberg.org", "data.forgejo.org", "nvcr.io", "quay.io")
+ERLAUBT = ("docker.io", "lscr.io", "codeberg.org", "data.forgejo.org", "nvcr.io", "quay.io", "mcr.microsoft.com")
 DOCKER_HUB = ("docker.io", "index.docker.io", "registry-1.docker.io")
 
 
 FROM = re.compile(r"^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)", re.I | re.M)
 IMAGE = re.compile(r"^\s*image:\s*(\S+)", re.M)
 ARG = re.compile(r"^\s*ARG\s+([A-Za-z_]\w*)=(\S+)", re.M)
-LITERAL = re.compile(r"docker\.io/library/[a-z0-9._-]+:[\w.-]+@sha256:[0-9a-f]{64}")
+LITERAL = re.compile(r"(?:docker\.io/library|mcr\.microsoft\.com)/[a-z0-9._/-]+:[\w.-]+@sha256:[0-9a-f]{64}")
 REF = re.compile(r"^(?P<name>[a-z0-9][a-z0-9._/:-]*?):(?P<tag>[\w][\w.-]*)@(?P<digest>sha256:[0-9a-f]{64})$")
 
 
