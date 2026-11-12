@@ -17,9 +17,10 @@ und nicht von Registries, die in ihrer Umgebung gesperrt sind.
   werden nicht neu kopiert; Images ab 4 GB (amd64, komprimiert) werden übersprungen.
 
 ## Quelle der Liste
-Secret `QUELLE_LESEN`: fein eingeschränkter Token, nur Contents: read auf genau ein
-privates Repo. Der Workflow ermittelt dieses Repo selbst und liest dessen
-Standard-Branch: alle `Dockerfile*`, `compose*.yaml` neben einem Dockerfile und
+Secret `QUELLE_LESEN`: fein eingeschränkter Token, nur Contents: read und
+Pull requests: read auf genau ein privates Repo. Der Workflow ermittelt dieses
+Repo selbst und liest dessen Standard-Branch und die Köpfe offener PRs (ohne
+Pull requests: read nur den Standard-Branch): alle `Dockerfile*`, `compose*.yaml` neben einem Dockerfile und
 wörtliche Pins (Docker Hub, mcr.microsoft.com) in `*.sh`.
 
 Läufe: bei Push auf main, täglich 03:17 UTC, per «Run workflow».

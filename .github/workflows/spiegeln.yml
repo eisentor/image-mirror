@@ -42,10 +42,25 @@ jobs:
           auth=$(printf 'x-access-token:%s' "$LESEN" | base64 -w0)
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
             clone -q --depth 1 "https://github.com/$repos.git" quelle
+          # Pins offener PRs (z. B. Dependabot) gleich mit: sonst fehlt ein neuer Pin hier, bis
+          # der PR gemergt ist, und Runner-Sessions können den PR nicht prüfen. Braucht am Token
+          # «Pull requests: Read»; fehlt das, nur main (Warnung).
+          if prs=$(curl -fsS -H "Authorization: Bearer $LESEN" \
+            "https://api.github.com/repos/$repos/pulls?state=open&per_page=100" | jq -r '.[].number'); then
+            for n in $prs; do
+              git -C quelle -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+                fetch -q --depth 1 origin "pull/$n/head" || { echo "::warning::PR $n nicht abrufbar"; continue; }
+              mkdir "pr-$n" && git -C quelle archive FETCH_HEAD | tar -x -C "pr-$n"
+            done
+            echo "offene PRs: $(printf '%s\n' $prs | grep -c .)"
+          else
+            echo "::warning::offene PRs nicht lesbar (Token ohne «Pull requests: Read»?) – nur main"
+          fi
 
       - name: Liste
         run: |
-          python3 spiegel/liste.py quelle > liste.tsv
+          # main und offene PRs, jedes Image einmal
+          for d in quelle pr-*; do [ -d "$d" ] && python3 spiegel/liste.py "$d"; done | sort -u > liste.tsv
           cut -f1 liste.tsv
           [ -s liste.tsv ] || { echo "::error::leere Liste"; exit 1; }
 
